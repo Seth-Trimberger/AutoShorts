@@ -1,0 +1,22 @@
+# Secrets (The most important part)
+.env
+*.env
+src/main/resources/application-local.properties
+
+# Java / Spring Boot defaults
+target/
+*.class
+*.jar
+*.war
+
+# IDE files (IntelliJ / VS Code)
+.idea/
+*.iml
+.vscode/
+.settings/
+.project/
+.classpath
+
+# OS specific files
+.DS_Store
+Thumbs.db
