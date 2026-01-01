@@ -13,7 +13,13 @@ public class RedditService {
 
     public Story scrapeStoryFromUrl(String url){
         try{
+            Document doc = Jsoup.connect(url).userAgent(USER_AGENT).timeout(10000).get();
+
             Story story = new Story();
+
+            //This extrats the CSS
+            Element titleElement = doc.selectFirst("h1");
+
             return story;
         }catch (Exception e){
             System.err.println("Scrapping failed for: " + url + " | Error: " + e.getMessage());
