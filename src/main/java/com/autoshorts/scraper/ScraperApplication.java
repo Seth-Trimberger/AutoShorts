@@ -56,6 +56,7 @@ public class ScraperApplication implements CommandLineRunner {
                 } else {
                     System.out.println("SKIPPED: URL already in queue.");
                 }
+                //checks
             } else if (!input.isEmpty()) {
                 System.out.println("INVALID: Please enter a valid URL, 'process', or 'exit'.");
             }
