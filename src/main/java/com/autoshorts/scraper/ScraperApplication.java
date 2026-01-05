@@ -6,10 +6,14 @@ import com.autoshorts.scraper.service.QueueProcessor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.Scanner;
 
 @SpringBootApplication
+@EnableScheduling   // Allows @Scheduled tasks
+@EnableAsync        // Allows tasks to run on a background thread
 public class ScraperApplication implements CommandLineRunner {
 
     private final QueueRepository queueRepository;
