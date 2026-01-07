@@ -49,6 +49,7 @@ public class ScraperApplication implements CommandLineRunner {
                 queueProcessor.processNextInQueue();
                 continue; // Skip the URL check below
             }
+            //good
             //function to read http
             if (input.startsWith("http")) {
                 if (!queueRepository.existsByUrl(input)) {
