@@ -20,3 +20,6 @@ target/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Generated video pipeline outputs
+output/

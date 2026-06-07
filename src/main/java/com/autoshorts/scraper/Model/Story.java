@@ -27,4 +27,15 @@ public class Story {
     // "TEXT" allows for long stories, standard String only allows 255 characters
     @Column(columnDefinition = "TEXT")
     private String content;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AssetStatus assetStatus = AssetStatus.PENDING;
+
+    private String audioPath;
+
+    private String videoPath;
+
+    @Column(columnDefinition = "TEXT")
+    private String errorMessage;
 }
