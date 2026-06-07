@@ -17,28 +17,32 @@ public final class ProcessRunner {
         builder.redirectErrorStream(true);
 
         Process process = builder.start();
-        String output = readOutput(process);
+
+        // Drain stdout on a background thread so the process buffer never fills and deadlocks.
+        // waitFor() below enforces the actual timeout.
+        StringBuilder output = new StringBuilder();
+        Thread reader = new Thread(() -> {
+            try (BufferedReader br = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    output.append(line).append(System.lineSeparator());
+                }
+            } catch (IOException ignored) {}
+        });
+        reader.setDaemon(true);
+        reader.start();
 
         if (!process.waitFor(timeoutMinutes, TimeUnit.MINUTES)) {
             process.destroyForcibly();
             throw new IOException("Command timed out after " + timeoutMinutes + " minutes: " + String.join(" ", command));
         }
 
+        reader.join(5_000);
+
         if (process.exitValue() != 0) {
             throw new IOException("Command failed (exit " + process.exitValue() + "): " + String.join(" ", command)
                     + "\n" + output);
         }
-    }
-
-    private static String readOutput(Process process) throws IOException {
-        StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append(System.lineSeparator());
-            }
-        }
-        return output.toString();
     }
 }

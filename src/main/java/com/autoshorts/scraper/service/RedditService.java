@@ -31,9 +31,15 @@ public class RedditService {
             String content = (contentElement != null) ? contentElement.text() : "No Content Found";
 
             // 3. Set the data into our Story model
+            String redditId = extractIdFromUrl(url);
+            if (redditId == null) {
+                System.err.println("Scraping failed for: " + url + " | Could not extract Reddit post ID");
+                return null;
+            }
+
             story.setTitle(title);
             story.setContent(content);
-            story.setRedditId(extractIdFromUrl(url));
+            story.setRedditId(redditId);
 
             return story;
 
@@ -44,7 +50,6 @@ public class RedditService {
     }
 
     private String extractIdFromUrl(String url) {
-        // Simple helper to get the ID (e.g., '1hjk56') from the URL
         try {
             String[] parts = url.split("/");
             for (int i = 0; i < parts.length; i++) {
@@ -52,7 +57,7 @@ public class RedditService {
                     return parts[i + 1];
                 }
             }
-        } catch (Exception e) { return "unknown"; }
-        return "unknown";
+        } catch (Exception ignored) {}
+        return null;
     }
 }
