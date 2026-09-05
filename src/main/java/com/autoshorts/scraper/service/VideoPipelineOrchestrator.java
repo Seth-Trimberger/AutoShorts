@@ -8,6 +8,7 @@ import com.autoshorts.scraper.service.video.BackgroundAssetService;
 import com.autoshorts.scraper.service.video.CaptionService;
 import com.autoshorts.scraper.service.video.FfmpegAssemblyService;
 import com.autoshorts.scraper.service.video.TtsService;
+import com.autoshorts.scraper.service.video.VoiceResolver;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -22,30 +23,41 @@ public class VideoPipelineOrchestrator {
     private final BackgroundAssetService backgroundAssetService;
     private final FfmpegAssemblyService ffmpegAssemblyService;
     private final AutoShortsProperties properties;
+    private final VoiceResolver voiceResolver;
 
     public VideoPipelineOrchestrator(StoryRepository storyRepository,
                                      TtsService ttsService,
                                      CaptionService captionService,
                                      BackgroundAssetService backgroundAssetService,
                                      FfmpegAssemblyService ffmpegAssemblyService,
-                                     AutoShortsProperties properties) {
+                                     AutoShortsProperties properties,
+                                     VoiceResolver voiceResolver) {
         this.storyRepository = storyRepository;
         this.ttsService = ttsService;
         this.captionService = captionService;
         this.backgroundAssetService = backgroundAssetService;
         this.ffmpegAssemblyService = ffmpegAssemblyService;
         this.properties = properties;
+        this.voiceResolver = voiceResolver;
     }
 
     public void processNextStoryForVideo() {
+        processNextStoryForVideo(null);
+    }
+
+    public void processNextStoryForVideo(String voiceOverride) {
         Optional<Story> nextStory = storyRepository.findFirstByAssetStatusOrderByIdAsc(AssetStatus.PENDING);
         nextStory.ifPresentOrElse(
-                story -> renderStory(story.getId()),
+                story -> renderStory(story.getId(), voiceOverride),
                 () -> System.out.println("No stories pending video generation.")
         );
     }
 
     public void renderStory(Long storyId) {
+        renderStory(storyId, null);
+    }
+
+    public void renderStory(Long storyId, String voiceOverride) {
         Story story = storyRepository.findById(storyId)
                 .orElseThrow(() -> new IllegalArgumentException("Story not found: " + storyId));
 
@@ -54,22 +66,35 @@ public class VideoPipelineOrchestrator {
             return;
         }
 
+        int claimed = storyRepository.claimForRendering(
+                storyId, AssetStatus.RENDERING, AssetStatus.PENDING, AssetStatus.FAILED);
+        if (claimed == 0) {
+            System.out.println("Story " + storyId + " is already being rendered or is not renderable.");
+            return;
+        }
+
+        story = storyRepository.findById(storyId)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found after claim: " + storyId));
+
         try {
             System.out.println("Rendering story: " + story.getRedditId() + " (id=" + storyId + ")");
 
+            story.setAssetStatus(AssetStatus.RENDERING);
+            story.setErrorMessage(null);
+            storyRepository.save(story);
+
             String narrationScript = buildNarrationScript(story);
-            Path audioPath = ttsService.synthesize(story.getRedditId(), narrationScript);
+            String resolvedVoice = voiceResolver.resolveVoice(voiceOverride);
+            Path audioPath = ttsService.synthesize(story.getRedditId(), narrationScript, resolvedVoice);
             story.setAudioPath(audioPath.toString());
+            story.setTtsVoice(resolvedVoice);
             story.setAssetStatus(AssetStatus.AUDIO_READY);
             story.setErrorMessage(null);
             storyRepository.save(story);
 
-            Path captionPath = captionService.generateCaptions(story.getRedditId(), audioPath);
+            Path captionPath = captionService.generateCaptions(story.getRedditId(), audioPath, narrationScript);
             Path backgroundPath = backgroundAssetService.selectBackground();
             Path videoPath = properties.getAssets().videoPath(story.getRedditId());
-
-            story.setAssetStatus(AssetStatus.RENDERING);
-            storyRepository.save(story);
 
             Path renderedVideo = ffmpegAssemblyService.assembleVideo(
                     backgroundPath, audioPath, captionPath, videoPath);

@@ -36,6 +36,8 @@ public class Story {
 
     private String videoPath;
 
+    private String ttsVoice;
+
     @Column(columnDefinition = "TEXT")
     private String errorMessage;
 }

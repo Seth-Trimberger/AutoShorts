@@ -1,6 +1,7 @@
 package com.autoshorts.scraper;
 
-import com.autoshorts.scraper.Model.QueueItem; // Check if your 'model' folder is lowercase
+import com.autoshorts.scraper.Model.QueueItem;
+import com.autoshorts.scraper.config.AutoShortsProperties;
 import com.autoshorts.scraper.repository.QueueRepository;
 import com.autoshorts.scraper.service.QueueProcessor;
 import com.autoshorts.scraper.service.VideoPipelineOrchestrator;
@@ -13,20 +14,23 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import java.util.Scanner;
 
 @SpringBootApplication
-@EnableScheduling   // Allows @Scheduled tasks
-@EnableAsync        // Allows tasks to run on a background thread
+@EnableScheduling
+@EnableAsync
 public class ScraperApplication implements CommandLineRunner {
 
     private final QueueRepository queueRepository;
     private final QueueProcessor queueProcessor;
     private final VideoPipelineOrchestrator videoPipelineOrchestrator;
+    private final AutoShortsProperties properties;
 
     public ScraperApplication(QueueRepository queueRepository,
                               QueueProcessor queueProcessor,
-                              VideoPipelineOrchestrator videoPipelineOrchestrator) {
+                              VideoPipelineOrchestrator videoPipelineOrchestrator,
+                              AutoShortsProperties properties) {
         this.queueRepository = queueRepository;
         this.queueProcessor = queueProcessor;
         this.videoPipelineOrchestrator = videoPipelineOrchestrator;
+        this.properties = properties;
     }
 
     public static void main(String[] args) {
@@ -35,11 +39,28 @@ public class ScraperApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        Scanner scanner = new Scanner(System.in);
-        System.out.println("\n--- REDDIT QUEUE MANAGER STARTING ---");
-        System.out.println("Commands: [URL] to add, 'process' to scrape top 1, 'render' to video next pending, 'render <id>' for specific story, 'exit' to quit.");
+        if (!properties.getCli().isEnabled()) {
+            System.out.println("CLI disabled (autoshorts.cli.enabled=false). Scheduling and automation continue.");
+            return;
+        }
 
-        while (true) {
+        if (System.console() == null) {
+            System.out.println("No interactive console detected. CLI skipped; scheduling and automation continue.");
+            return;
+        }
+
+        Scanner scanner = new Scanner(System.in);
+        if (!scanner.hasNextLine()) {
+            System.out.println("No stdin available. CLI skipped; scheduling and automation continue.");
+            return;
+        }
+
+        System.out.println("\n--- REDDIT QUEUE MANAGER STARTING ---");
+        System.out.println("Commands: [URL] to add, 'process' to scrape top 1, 'render' to video next pending,");
+        System.out.println("          'render <id>' for specific story, 'render <id> voice <voice>' to override voice,");
+        System.out.println("          'voices' to list default voice pool, 'exit' to quit.");
+
+        while (scanner.hasNextLine()) {
             System.out.print("> ");
             String input = scanner.nextLine().trim();
 
@@ -48,7 +69,6 @@ public class ScraperApplication implements CommandLineRunner {
                 System.exit(0);
             }
 
-            // 3. Trigger the processor
             if (input.equalsIgnoreCase("process")) {
                 queueProcessor.processNextInQueue();
                 continue;
@@ -59,13 +79,13 @@ public class ScraperApplication implements CommandLineRunner {
                 continue;
             }
 
+            if (input.equalsIgnoreCase("voices")) {
+                printVoicePool();
+                continue;
+            }
+
             if (input.toLowerCase().startsWith("render ")) {
-                try {
-                    long storyId = Long.parseLong(input.substring(7).trim());
-                    videoPipelineOrchestrator.renderStory(storyId);
-                } catch (NumberFormatException e) {
-                    System.out.println("INVALID: render id must be a number, e.g. 'render 1'.");
-                }
+                handleRenderCommand(input.substring(7).trim());
                 continue;
             }
 
@@ -79,10 +99,45 @@ public class ScraperApplication implements CommandLineRunner {
                 } else {
                     System.out.println("SKIPPED: URL already in queue.");
                 }
-                //checks
             } else if (!input.isEmpty()) {
-                System.out.println("INVALID: Please enter a valid URL, 'process', 'render', or 'exit'.");
+                System.out.println("INVALID: Please enter a valid URL, 'process', 'render', 'voices', or 'exit'.");
             }
+        }
+
+        System.out.println("stdin closed. CLI exiting; scheduling and automation continue.");
+    }
+
+    private void printVoicePool() {
+        AutoShortsProperties.Tts tts = properties.getTts();
+        System.out.println("Default voice pool (mode=" + tts.getVoiceMode() + "):");
+        for (String voice : tts.getVoices()) {
+            System.out.println("  - " + voice);
+        }
+        System.out.println("Fallback voice: " + tts.getVoice());
+        System.out.println("Override: render <id> voice <name>");
+        System.out.println("Preview:  edge-tts --voice en-GB-SoniaNeural --text \"test\" --write-media /tmp/test.mp3");
+    }
+
+    private void handleRenderCommand(String args) {
+        String[] parts = args.split("\\s+");
+        if (parts.length == 0 || parts[0].isBlank()) {
+            System.out.println("INVALID: render id must be a number, e.g. 'render 1'.");
+            return;
+        }
+
+        try {
+            long storyId = Long.parseLong(parts[0]);
+            String voiceOverride = null;
+            if (parts.length >= 3 && parts[1].equalsIgnoreCase("voice")) {
+                voiceOverride = parts[2];
+            } else if (parts.length != 1) {
+                System.out.println("INVALID: use 'render <id>' or 'render <id> voice <voiceName>'.");
+                return;
+            }
+
+            videoPipelineOrchestrator.renderStory(storyId, voiceOverride);
+        } catch (NumberFormatException e) {
+            System.out.println("INVALID: render id must be a number, e.g. 'render 1'.");
         }
     }
 }

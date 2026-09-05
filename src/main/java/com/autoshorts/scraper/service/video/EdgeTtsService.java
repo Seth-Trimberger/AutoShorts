@@ -14,28 +14,36 @@ import java.util.List;
 public class EdgeTtsService implements TtsService {
 
     private final AutoShortsProperties properties;
+    private final VoiceResolver voiceResolver;
 
-    public EdgeTtsService(AutoShortsProperties properties) {
+    public EdgeTtsService(AutoShortsProperties properties, VoiceResolver voiceResolver) {
         this.properties = properties;
+        this.voiceResolver = voiceResolver;
     }
 
     @Override
     public Path synthesize(String redditId, String narrationScript) throws Exception {
+        return synthesize(redditId, narrationScript, null);
+    }
+
+    @Override
+    public Path synthesize(String redditId, String narrationScript, String voice) throws Exception {
         Path audioPath = properties.getAssets().audioPath(redditId);
         Files.createDirectories(audioPath.getParent());
 
+        String resolvedVoice = voiceResolver.resolveVoice(voice);
         Path scriptFile = Files.createTempFile("narration-" + redditId + "-", ".txt");
         try {
             Files.writeString(scriptFile, narrationScript);
 
             List<String> command = List.of(
                     properties.getTts().getEdgeTtsCommand(),
-                    "--voice", properties.getTts().getVoice(),
+                    "--voice", resolvedVoice,
                     "--file", scriptFile.toString(),
                     "--write-media", audioPath.toString()
             );
 
-            System.out.println("TTS: Generating audio with edge-tts...");
+            System.out.println("TTS: Generating audio with edge-tts (" + resolvedVoice + ")...");
             ProcessRunner.run(command, 30);
 
             if (!Files.exists(audioPath)) {
