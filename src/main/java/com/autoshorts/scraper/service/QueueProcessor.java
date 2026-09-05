@@ -10,6 +10,8 @@ import java.util.Optional;
 @Service
 public class QueueProcessor {
 
+    private static final int MAX_ATTEMPTS = 3;
+
     private final QueueRepository queueRepository;
     private final RedditService redditService;
     private final StoryRepository storyRepository;
@@ -27,19 +29,25 @@ public class QueueProcessor {
     }
 
     public void processNextInQueue() {
-        Optional<QueueItem> nextItem = queueRepository.findFirstByStatusOrderByIdAsc(0);
+        Optional<QueueItem> nextItem = queueRepository.findFirstByStatusOrderByIdAsc(QueueItem.PENDING);
 
         if (nextItem.isPresent()) {
             QueueItem item = nextItem.get();
             System.out.println("Processing from Queue: " + item.getUrl());
 
-            Story scraped = redditService.scrapeStoryFromUrl(item.getUrl());
+            try {
+                Story scraped = redditService.scrapeStoryFromUrl(item.getUrl());
+                if (scraped == null) {
+                    throw new IllegalStateException("Reddit story could not be scraped");
+                }
 
-            if (scraped != null) {
-                // 3. Clean the text using our new processor
+                if (storyRepository.existsByRedditId(scraped.getRedditId())) {
+                    System.out.println("DATABASE: Story already exists; marking URL processed.");
+                    markProcessed(item);
+                    return;
+                }
+
                 String cleanContent = storyProcessor.processForScript(scraped.getTitle(), scraped.getContent());
-
-                // 4. Check if it's at least 45 seconds long
                 if (storyProcessor.meetsMinimumLength(scraped.getTitle(), cleanContent)) {
                     scraped.setContent(cleanContent);
                     storyRepository.save(scraped);
@@ -48,12 +56,33 @@ public class QueueProcessor {
                     System.out.println("DATABASE: URL skipped (Below 45s minimum).");
                 }
 
-                // 5. Mark as processed (1) so it's removed from the 'To-Do' list
-                item.setStatus(1);
-                queueRepository.save(item);
+                markProcessed(item);
+            } catch (Exception e) {
+                markFailedOrRetry(item, e);
             }
         } else {
             System.out.println("Queue is currently empty.");
         }
+    }
+
+    private void markProcessed(QueueItem item) {
+        item.setStatus(QueueItem.PROCESSED);
+        item.setErrorMessage(null);
+        queueRepository.save(item);
+    }
+
+    private void markFailedOrRetry(QueueItem item, Exception exception) {
+        int attempts = item.getAttempts() + 1;
+        item.setAttempts(attempts);
+        item.setErrorMessage(messageFor(exception));
+        item.setStatus(attempts >= MAX_ATTEMPTS ? QueueItem.FAILED : QueueItem.PENDING);
+        queueRepository.save(item);
+        System.err.println("QUEUE: Attempt " + attempts + "/" + MAX_ATTEMPTS + " failed for "
+                + item.getUrl() + ": " + item.getErrorMessage());
+    }
+
+    private String messageFor(Exception exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
     }
 }
